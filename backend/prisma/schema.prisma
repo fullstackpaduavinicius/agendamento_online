@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  email     String   @unique
+  phone     String?
+  password  String   // hash
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointments Appointment[]
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model Specialist {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  name       String
+  specialty  String
+  bio        String?
+  photoUrl   String?
+  basePriceCents Int?  // <<— preço em centavos (ex.: R$ 120,00 => 12000)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  rules        AvailabilityRule[]
+  exceptions   AvailabilityException[]
+  appointments Appointment[]
+}
+
+model AvailabilityRule {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  specialistId  String   @db.ObjectId
+  weekday       Int      // 0..6 (Dom..Sáb)
+  defaultCap    Int      @default(8)
+  active        Boolean  @default(true)
+
+  specialist    Specialist @relation(fields: [specialistId], references: [id])
+}
+
+model AvailabilityException {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  specialistId  String   @db.ObjectId
+  date          DateTime // data específica (00:00 local)
+  status        DayStatus @default(OPEN)
+  capacity      Int?
+  reason        String?
+
+  specialist    Specialist @relation(fields: [specialistId], references: [id])
+
+  @@unique([specialistId, date])
+}
+
+enum DayStatus {
+  OPEN
+  CLOSED
+  FULL
+  UNAVAILABLE
+}
+
+model Appointment {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId
+  specialistId  String   @db.ObjectId
+  date          DateTime // dia (sem hora)
+  status        ApptStatus @default(PENDING)
+  queueToken    Int?     // posição na fila
+  createdAt     DateTime @default(now())
+
+  user          User       @relation(fields: [userId], references: [id])
+  specialist    Specialist @relation(fields: [specialistId], references: [id])
+  payment       Payment?
+
+  @@index([specialistId, date])
+}
+
+enum ApptStatus {
+  PENDING
+  PAID
+  CANCELED
+  NO_SHOW
+  SERVED
+}
+
+model Payment {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  appointmentId  String   @unique @db.ObjectId
+  gateway        String   @default("MercadoPago")
+  status         PayStatus @default(INITIATED)
+  amountCents    Int?     // <<— valor em centavos
+  mpPreferenceId String?
+  mpPaymentId    String?
+  rawPayload     Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  appointment    Appointment @relation(fields: [appointmentId], references: [id])
+}
+
+enum PayStatus {
+  INITIATED
+  APPROVED
+  REJECTED
+  REFUNDED
+}
+
+model AuditLog {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  actorId   String?  @db.ObjectId
+  action    String
+  meta      Json?
+  createdAt DateTime @default(now())
+}
