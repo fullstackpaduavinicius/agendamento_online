@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { prisma } from '../lib/prisma.js';
 import { signJwt } from '../lib/auth.js';
 import { z } from 'zod';
+import { authGuard } from '../middlewares/authGuard.js';
 
 const router = Router();
 
@@ -29,5 +30,9 @@ router.post('/login', async (req, res) => {
   const token = signJwt({ sub: user.id, role: user.role });
   res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
 });
-
+router.get('/me', authGuard(), async (req, res) => {
+  const u = await prisma.user.findUnique({ where: { id: req.user.sub }});
+  if (!u) return res.status(404).json({ error: 'not_found' });
+  res.json({ id: u.id, name: u.name, email: u.email, role: u.role });
+});
 export default router;

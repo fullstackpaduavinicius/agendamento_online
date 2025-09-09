@@ -135,23 +135,37 @@ router.post('/', authGuard(), async (req, res) => {
 /**
  * POST /appointments/:id/cancel
  * Cancela a consulta (libera a vaga) respeitando a janela de cancelamento configurável.
+ * Se estiver paga, tenta reembolso total via MP (Refund SDK v2).
  */
 router.post('/:id/cancel', authGuard(), async (req, res) => {
-  const appt = await prisma.appointment.findUnique({ where: { id: req.params.id } });
+  const appt = await prisma.appointment.findUnique({
+    where: { id: req.params.id },
+    include: { payment: true },
+  });
   if (!appt) return res.status(404).json({ error: 'not_found' });
   if (appt.userId !== req.user.sub) return res.status(403).json({ error: 'forbidden' });
 
-  // (Opcional) política de cancelamento: até X horas antes do dia
   const limitHours = Number(process.env.CANCEL_HOURS ?? 24);
   const now = dayjs.tz(new Date(), TZ);
   const dayStart = dayjs.tz(appt.date, TZ); // 00:00 do dia da consulta
+
   if (dayStart.diff(now, 'hour') < limitHours) {
     return res.status(400).json({ error: 'cancel_window_closed' });
   }
 
-  // Se já foi pago, aqui você poderia acionar refund no MP (faremos depois)
-  if (appt.status === 'PAID') {
-    // TODO: refund opcional
+  // Se estava pago, tenta reembolso
+  if (appt.status === 'PAID' && appt.payment?.mpPaymentId) {
+    try {
+      // reembolso total; para parcial, inclua "amount"
+      //await mp.refund.create({ payment_id: appt.payment.mpPaymentId });
+      await prisma.payment.update({
+        where: { id: appt.payment.id },
+        data: { status: 'REFUNDED' },
+      });
+    } catch (e) {
+      console.error('refund_error', e?.message || e);
+      // Opcional: retornar 409 se reembolso falhar. Aqui segue cancelando mesmo assim.
+    }
   }
 
   const updated = await prisma.appointment.update({

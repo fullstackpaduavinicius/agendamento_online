@@ -1,33 +1,38 @@
+// frontend/src/pages/Login.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, setAuth } from "../lib/api";
+import { useAuth } from "../store/auth";
 
 export default function Login() {
   const nav = useNavigate();
-  const [mode, setMode] = useState("login"); // login | register
+  const { login, register } = useAuth();
+  const [mode, setMode] = useState("login"); // 'login' | 'register'
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
     setErr("");
+    setLoading(true);
     try {
       if (mode === "register") {
-        const r = await api.post("/auth/register", { name, email, password });
-        const { token } = r.data;
-        localStorage.setItem("token", token);
-        setAuth(token);
+        await register(name, email, password);
       } else {
-        const r = await api.post("/auth/login", { email, password });
-        const { token } = r.data;
-        localStorage.setItem("token", token);
-        setAuth(token);
+        await login(email, password);
       }
       nav("/especialistas");
     } catch (e) {
-      setErr(e?.response?.data?.error || "Erro ao autenticar");
+      // tenta extrair mensagem amigável do backend
+      const msg =
+        e?.response?.data?.error ||
+        e?.message ||
+        "Erro ao autenticar";
+      setErr(msg);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -37,7 +42,11 @@ export default function Login() {
         {mode === "login" ? "Entrar" : "Criar conta"}
       </h1>
 
-      {err && <div className="border p-2 rounded bg-red-50">{err}</div>}
+      {err && (
+        <div className="border p-2 rounded bg-red-50 text-red-700 text-sm">
+          {err}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-3">
         {mode === "register" && (
@@ -48,6 +57,7 @@ export default function Login() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
+              disabled={loading}
             />
           </div>
         )}
@@ -61,6 +71,7 @@ export default function Login() {
             onChange={(e) => setEmail(e.target.value)}
             required
             autoComplete="email"
+            disabled={loading}
           />
         </div>
 
@@ -73,20 +84,28 @@ export default function Login() {
             onChange={(e) => setPassword(e.target.value)}
             required
             autoComplete={mode === "login" ? "current-password" : "new-password"}
+            disabled={loading}
           />
         </div>
 
         <button
           type="submit"
-          className="w-full bg-blue-600 text-white px-4 py-2 rounded"
+          className="w-full bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-60"
+          disabled={loading}
         >
-          {mode === "login" ? "Entrar" : "Criar conta"}
+          {loading
+            ? "Aguarde..."
+            : mode === "login"
+            ? "Entrar"
+            : "Criar conta"}
         </button>
       </form>
 
       <button
+        type="button"
         className="text-blue-600 text-sm"
         onClick={() => setMode(mode === "login" ? "register" : "login")}
+        disabled={loading}
       >
         {mode === "login"
           ? "Não tem conta? Criar agora"

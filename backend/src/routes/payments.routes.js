@@ -2,7 +2,8 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { mp } from '../lib/mp.js';
-import { calendarUpdated } from '../lib/socketHub.js'; // 👈 import adicionado
+import { calendarUpdated } from '../lib/socketHub.js';
+import { sendMail } from '../lib/mailer.js'; // 👈 import do mailer
 
 const router = Router();
 
@@ -36,16 +37,39 @@ router.all('/webhook', async (req, res) => {
     });
 
     if (approved) {
-      const appt = await prisma.appointment.findUnique({ where: { id: pay.appointmentId } });
+      // Busca o appointment com user e specialist para montar o e-mail
+      const appt = await prisma.appointment.findUnique({
+        where: { id: pay.appointmentId },
+        include: { user: true, specialist: true },
+      });
+
+      // Define a posição na fila baseada em quantos "PAID" existem no dia
       const countPaid = await prisma.appointment.count({
         where: { specialistId: appt.specialistId, date: appt.date, status: 'PAID' },
       });
+
       await prisma.appointment.update({
         where: { id: appt.id },
         data: { status: 'PAID', queueToken: countPaid + 1 },
       });
 
-      // 👇 notifica o calendário em tempo real
+      // E-mail de confirmação
+      const dataStr = new Date(appt.date).toLocaleDateString('pt-BR');
+      const html = `
+        <h2>Pagamento aprovado 🎉</h2>
+        <p>Olá, ${appt.user?.name || 'cliente'}!</p>
+        <p>Sua consulta com <b>${appt.specialist?.name || 'especialista'}</b> (${appt.specialist?.specialty || ''}) foi confirmada para <b>${dataStr}</b>.</p>
+        <p><b>Atendimento por ordem de chegada</b>. Apresente este número ao chegar: <b>#${countPaid + 1}</b>.</p>
+      `;
+      try {
+        if (appt.user?.email) {
+          await sendMail(appt.user.email, 'Consulta confirmada', html);
+        }
+      } catch (e) {
+        console.error('mail_error', e);
+      }
+
+      // Notifica o calendário em tempo real (frontend recarrega o mês)
       calendarUpdated(appt.specialistId, appt.date.toISOString());
     }
 

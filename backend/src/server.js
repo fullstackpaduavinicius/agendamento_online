@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import http from 'http';
+import rateLimit from 'express-rate-limit'; // 👈 import do rate-limit
 
 import authRoutes from './routes/auth.routes.js';
 import specialistsRoutes from './routes/specialists.routes.js';
@@ -54,6 +55,14 @@ app.use(
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+
+// --- rate limiters específicos ------------------------------
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
+const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 120 });
+
+app.use('/auth', authLimiter);
+app.use('/payments/webhook', webhookLimiter);
+// ------------------------------------------------------------
 
 app.get('/health', (_, res) => res.json({ ok: true }));
 
