@@ -1,7 +1,8 @@
-// src/routes/payments.routes.js
+// backend/src/routes/payments.routes.js
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { mp } from '../lib/mp.js';
+import { calendarUpdated } from '../lib/socketHub.js'; // 👈 import adicionado
 
 const router = Router();
 
@@ -27,18 +28,25 @@ router.all('/webhook', async (req, res) => {
 
     await prisma.payment.update({
       where: { id: pay.id },
-      data: { status: approved ? 'APPROVED' : 'REJECTED', mpPaymentId: String(id), rawPayload: mpPayment }
+      data: {
+        status: approved ? 'APPROVED' : 'REJECTED',
+        mpPaymentId: String(id),
+        rawPayload: mpPayment,
+      },
     });
 
     if (approved) {
       const appt = await prisma.appointment.findUnique({ where: { id: pay.appointmentId } });
       const countPaid = await prisma.appointment.count({
-        where: { specialistId: appt.specialistId, date: appt.date, status: 'PAID' }
+        where: { specialistId: appt.specialistId, date: appt.date, status: 'PAID' },
       });
       await prisma.appointment.update({
         where: { id: appt.id },
-        data: { status: 'PAID', queueToken: countPaid + 1 }
+        data: { status: 'PAID', queueToken: countPaid + 1 },
       });
+
+      // 👇 notifica o calendário em tempo real
+      calendarUpdated(appt.specialistId, appt.date.toISOString());
     }
 
     return res.status(200).send('ok');
